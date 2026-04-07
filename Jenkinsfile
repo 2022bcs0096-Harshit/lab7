@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = 'harshithbcs96/harshith-2022bcs0096-lab6:latest'
+        IMAGE_NAME = 'harshithbcs96/harshith-2022bcs0096-lab7:latest'
         CONTAINER_NAME = 'lab7-validation-container'
         API_PORT = '8000'
     }
@@ -10,8 +10,11 @@ pipeline {
     stages {
         stage('Pull Image') {
             steps {
-                echo "Downloading the ML inference Docker image from Docker Hub..."
-                sh 'docker pull $IMAGE_NAME'
+                echo "=============================================="
+                echo " Using locally built ML inference Docker image"
+                echo " Image: ${IMAGE_NAME}"
+                echo "=============================================="
+                sh 'docker images | grep harshith-2022bcs0096-lab7 || echo "WARNING: Image not found locally!"'
             }
         }
 
@@ -19,21 +22,25 @@ pipeline {
             steps {
                 echo "Starting the inference container locally for testing..."
                 sh 'docker rm -f $CONTAINER_NAME || true'
-                sh 'docker run -d -p $API_PORT:$API_PORT --name $CONTAINER_NAME $IMAGE_NAME'
+                sh 'docker run -d --name $CONTAINER_NAME $IMAGE_NAME'
+                sh 'sleep 5'
             }
         }
 
         stage('Wait for Service Readiness') {
             steps {
                 echo "Waiting for API to boot up..."
-                timeout(time: 30, unit: 'SECONDS') {
-                    waitUntil {
-                        script {
-                            // Rock-solid IP extraction via the container itself!
-                            def API_IP = sh(script: "docker exec \$CONTAINER_NAME hostname -i", returnStdout: true).trim()
-                            
-                            def status = sh(script: "curl -s -o /dev/null -w '%{http_code}' http://${API_IP}:${API_PORT}/", returnStdout: true).trim()
-                            return status == '200'
+                script {
+                    def API_IP = sh(script: 'docker exec $CONTAINER_NAME hostname -i', returnStdout: true).trim()
+                    echo "Container IP: ${API_IP}"
+
+                    timeout(time: 30, unit: 'SECONDS') {
+                        waitUntil {
+                            script {
+                                def code = sh(script: "curl -s -o /dev/null -w '%{http_code}' http://${API_IP}:${API_PORT}/", returnStdout: true).trim()
+                                echo "Health check status: ${code}"
+                                return code == '200'
+                            }
                         }
                     }
                 }
@@ -45,35 +52,35 @@ pipeline {
             steps {
                 echo "Sending valid test data to /predict endpoint..."
                 script {
-                    def API_IP = sh(script: "docker exec \$CONTAINER_NAME hostname -i", returnStdout: true).trim()
-                    
-                    def response = sh(script: "curl -s -w '\\nHTTP_STATUS:%{http_code}' -X POST http://${API_IP}:${API_PORT}/predict -H 'Content-Type: application/json' -d @valid_input.json", returnStdout: true).trim()
+                    def API_IP = sh(script: 'docker exec $CONTAINER_NAME hostname -i', returnStdout: true).trim()
+
+                    def response = sh(script: """curl -s -w '\\nHTTP_STATUS:%{http_code}' -X POST http://${API_IP}:${API_PORT}/predict -H 'Content-Type: application/json' -d @valid_input.json""", returnStdout: true).trim()
                     echo "Response: ${response}"
-                    
+
                     if (!response.contains('HTTP_STATUS:200')) {
-                        error "FAIL: Valid test request did not return a successful 200 HTTP code!"
+                        error "FAIL: Valid test request did not return HTTP 200!"
                     }
                     if (!response.contains('"prediction"')) {
-                        error "FAIL: The response format is incorrect. 'prediction' key is missing!"
+                        error "FAIL: Response missing 'prediction' key!"
                     }
-                    echo "PASS: Pipeline correctly validated standard ML inputs!"
+                    echo "PASS: Valid inference request returned correct prediction!"
                 }
             }
         }
 
         stage('Send Invalid Request') {
             steps {
-                echo "Testing Error Handling mechanism with malformed input data..."
+                echo "Testing error handling with malformed input..."
                 script {
-                    def API_IP = sh(script: "docker exec \$CONTAINER_NAME hostname -i", returnStdout: true).trim()
-                    
-                    def response = sh(script: "curl -s -w '\\nHTTP_STATUS:%{http_code}' -X POST http://${API_IP}:${API_PORT}/predict -H 'Content-Type: application/json' -d @invalid_input.json", returnStdout: true).trim()
+                    def API_IP = sh(script: 'docker exec $CONTAINER_NAME hostname -i', returnStdout: true).trim()
+
+                    def response = sh(script: """curl -s -w '\\nHTTP_STATUS:%{http_code}' -X POST http://${API_IP}:${API_PORT}/predict -H 'Content-Type: application/json' -d @invalid_input.json""", returnStdout: true).trim()
                     echo "Bad Input Response: ${response}"
-                    
+
                     if (response.contains('HTTP_STATUS:200')) {
-                        error "FAIL: API blindly accepted terrible input data without throwing an error!"
+                        error "FAIL: API accepted invalid data without error!"
                     }
-                    echo "PASS: API successfully rejected the bad data with a validation error!"
+                    echo "PASS: API correctly rejected malformed input!"
                 }
             }
         }
@@ -81,15 +88,19 @@ pipeline {
 
     post {
         always {
-            echo "Pipeline complete. Tearing down local test container..."
+            echo "Tearing down test container..."
             sh 'docker stop $CONTAINER_NAME || true'
             sh 'docker rm -f $CONTAINER_NAME || true'
         }
         success {
-            echo "CI/CD Model Validation Status: ALL TESTS PASSED SUCCESSFULLY!"
+            echo "=========================================="
+            echo " ALL VALIDATION TESTS PASSED SUCCESSFULLY"
+            echo "=========================================="
         }
         failure {
-            echo "CI/CD Model Validation Status: PIPELINE FAILED DUE TO FAILED TEST OR BAD IMAGE!"
+            echo "=========================================="
+            echo " PIPELINE FAILED - VALIDATION ERROR"
+            echo "=========================================="
         }
     }
 }
