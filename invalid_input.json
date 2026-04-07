@@ -1,0 +1,5 @@
+{
+  "fixed_acidity": "this_should_be_a_number_but_is_a_string",
+  "volatile_acidity": 0.7,
+  "citric_acid": 0.0
+}
