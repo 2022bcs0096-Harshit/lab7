@@ -29,8 +29,8 @@ pipeline {
                 timeout(time: 30, unit: 'SECONDS') {
                     waitUntil {
                         script {
-                            // Extract IP using simple grep/cut to avoid Groovy string interpolation breaking Docker format braces
-                            def API_IP = sh(script: "docker inspect $CONTAINER_NAME | grep -m1 'IPAddress' | cut -d '\"' -f 4", returnStdout: true).trim()
+                            // Rock-solid IP extraction via the container itself!
+                            def API_IP = sh(script: "docker exec \$CONTAINER_NAME hostname -i", returnStdout: true).trim()
                             
                             def status = sh(script: "curl -s -o /dev/null -w '%{http_code}' http://${API_IP}:${API_PORT}/", returnStdout: true).trim()
                             return status == '200'
@@ -45,7 +45,7 @@ pipeline {
             steps {
                 echo "Sending valid test data to /predict endpoint..."
                 script {
-                    def API_IP = sh(script: "docker inspect $CONTAINER_NAME | grep -m1 'IPAddress' | cut -d '\"' -f 4", returnStdout: true).trim()
+                    def API_IP = sh(script: "docker exec \$CONTAINER_NAME hostname -i", returnStdout: true).trim()
                     
                     def response = sh(script: "curl -s -w '\\nHTTP_STATUS:%{http_code}' -X POST http://${API_IP}:${API_PORT}/predict -H 'Content-Type: application/json' -d @valid_input.json", returnStdout: true).trim()
                     echo "Response: ${response}"
@@ -65,7 +65,7 @@ pipeline {
             steps {
                 echo "Testing Error Handling mechanism with malformed input data..."
                 script {
-                    def API_IP = sh(script: "docker inspect $CONTAINER_NAME | grep -m1 'IPAddress' | cut -d '\"' -f 4", returnStdout: true).trim()
+                    def API_IP = sh(script: "docker exec \$CONTAINER_NAME hostname -i", returnStdout: true).trim()
                     
                     def response = sh(script: "curl -s -w '\\nHTTP_STATUS:%{http_code}' -X POST http://${API_IP}:${API_PORT}/predict -H 'Content-Type: application/json' -d @invalid_input.json", returnStdout: true).trim()
                     echo "Bad Input Response: ${response}"
